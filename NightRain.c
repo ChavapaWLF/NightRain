@@ -1378,55 +1378,54 @@ void render() {
     
     // 绘制远山（3D背景）
     for (int i = 0; i < MOUNTAIN_COUNT; i++) {
-        // 按Z深度排序，从远到近绘制
         // 计算投影后的山位置
         int mountain_proj_x = (int)project_x(mountains[i].x_offset, mountains[i].z);
         
         // 绘制山脉轮廓
-        SDL_SetRenderDrawColor(renderer, 
-                              mountains[i].color.r, 
-                              mountains[i].color.g, 
-                              mountains[i].color.b, 
-                              mountains[i].color.a);
-        
-        // 绘制三角形山
+        SDL_Color base_color = mountains[i].color;
         int peak_x = mountain_proj_x + WINDOW_WIDTH / 2;
-        int left_x = peak_x - mountains[i].width / 2;
-        int right_x = peak_x + mountains[i].width / 2;
         int base_y = POND_HEIGHT;
         int peak_y = base_y - mountains[i].height;
         
-        // 填充山体
+        // 预计算颜色变化范围
+        int color_variation = 5; // 减少颜色变化幅度
+        
+        // 填充山体（优化为按行绘制）
         for (int y = peak_y; y <= base_y; y++) {
-            // 计算当前高度对应的山的宽度
             float height_ratio = (float)(y - peak_y) / (base_y - peak_y);
             int current_width = (int)(mountains[i].width * height_ratio);
             int start_x = peak_x - current_width / 2;
             int end_x = peak_x + current_width / 2;
             
-            // 绘制水平线
-            for (int x = start_x; x <= end_x; x++) {
-                if (x >= 0 && x < WINDOW_WIDTH) {
-                    // 添加一些渐变和噪声使山看起来更自然
-                    int noise = rand() % 10 - 5;
-                    
-                    // 闪电会照亮山脉
-                    if (lightning_flash) {
-                        SDL_SetRenderDrawColor(renderer, 
-                                              (Uint8)fminf(255, mountains[i].color.r + noise + flash_brightness), 
-                                              (Uint8)fminf(255, mountains[i].color.g + noise + flash_brightness), 
-                                              (Uint8)fminf(255, mountains[i].color.b + noise + flash_brightness), 
-                                              mountains[i].color.a);
-                    } else {
-                        SDL_SetRenderDrawColor(renderer, 
-                                              mountains[i].color.r + noise, 
-                                              mountains[i].color.g + noise, 
-                                              mountains[i].color.b + noise, 
-                                              mountains[i].color.a);
-                    }
-                    
-                    SDL_RenderDrawPoint(renderer, x, y);
-                }
+            if (current_width <= 0) continue;
+            
+            // 计算本行颜色
+            SDL_Color line_color = base_color;
+            line_color.r = (Uint8)fmin(255, fmax(0, line_color.r));
+            line_color.g = (Uint8)fmin(255, fmax(0, line_color.g));
+            line_color.b = (Uint8)fmin(255, fmax(0, line_color.b));
+            
+            // 闪电效果
+            if (lightning_flash) {
+                line_color.r = (Uint8)fmin(255, line_color.r + flash_brightness);
+                line_color.g = (Uint8)fmin(255, line_color.g + flash_brightness);
+                line_color.b = (Uint8)fmin(255, line_color.b + flash_brightness);
+            }
+            
+            SDL_SetRenderDrawColor(renderer, line_color.r, line_color.g, line_color.b, line_color.a);
+            
+            // 绘制整行（使用填充矩形代替逐点绘制）
+            SDL_Rect line_rect = {
+                start_x < 0 ? 0 : start_x,  // 限制在窗口范围内
+                y,
+                end_x - start_x + 1,
+                1
+            };
+            if (line_rect.x + line_rect.w > WINDOW_WIDTH) {
+                line_rect.w = WINDOW_WIDTH - line_rect.x;
+            }
+            if (line_rect.w > 0) {
+                SDL_RenderFillRect(renderer, &line_rect);
             }
         }
     }
