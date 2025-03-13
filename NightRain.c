@@ -4,636 +4,752 @@
  * 包含电闪雷鸣、动态天气和荷叶水珠效果
  */
 
- #include <SDL2/SDL.h>
- #include <stdio.h>
- #include <stdlib.h>
- #include <stdbool.h>
- #include <time.h>
- #include <math.h>
+#include <SDL2/SDL.h>
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <time.h>
+#include <math.h>
  
- // 窗口大小和模拟参数常量
- #define WINDOW_WIDTH 800
- #define WINDOW_HEIGHT 600
- #define MAX_RAINDROPS 1000              // 增加雨滴上限以支持暴雨场景
- #define MAX_RIPPLES 500                 // 涟漪上限
- #define MAX_SPLASHES 300                // 溅射水珠上限
- #define MAX_LIGHTNING 5                 // 最大同时出现的闪电数
- #define POND_HEIGHT (WINDOW_HEIGHT * 2 / 3)  // 荷塘位于窗口高度的2/3处
- #define RIPPLE_LIFETIME 2000            // 涟漪生命周期（毫秒）
- #define SPLASH_LIFETIME 800             // 溅射水珠生命周期（毫秒）
- #define LIGHTNING_LIFETIME 500          // 闪电生命周期（毫秒）
- #define RAINDROP_FALL_SPEED_MIN 200
- #define RAINDROP_FALL_SPEED_MAX 500     // 增加最大下落速度
- #define RIPPLE_SPEED 30                 // 涟漪扩散速度
- #define STARS_COUNT 300                 // 星星数量
- #define MOUNTAIN_COUNT 5                // 山的数量
- #define REED_COUNT 20                   // 芦苇数量
- #define LOTUS_PAD_COUNT 25              // 荷叶数量
- #define LOTUS_FLOWER_COUNT 8            // 荷花数量
- 
- // 天气状态枚举
- typedef enum {
-     WEATHER_LIGHT_RAIN,    // 和风细雨
-     WEATHER_MEDIUM_RAIN,   // 中雨
-     WEATHER_HEAVY_RAIN,    // 暴风骤雨
-     WEATHER_THUNDERSTORM,  // 雷暴
-     WEATHER_COUNT          // 枚举计数
- } WeatherState;
- 
- // 雨滴结构体
- typedef struct {
-     float x;              // X坐标
-     float y;              // Y坐标
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float speed_y;        // 垂直下落速度
-     float speed_x;        // 水平速度（受风影响）
-     SDL_Color color;      // 雨滴颜色
-     int size;             // 雨滴基础大小
-     bool active;          // 雨滴是否激活
-     bool in_water;        // 雨滴是否已入水
-     Uint32 creation_time; // 雨滴创建时间
-     Uint32 water_time;    // 雨滴入水时间
- } Raindrop;
- 
- // 涟漪结构体
- typedef struct {
-     float x;              // X坐标
-     float y;              // Y坐标
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float radius;         // 当前半径
-     float max_radius;     // 最大半径
-     SDL_Color color;      // 涟漪颜色
-     Uint32 creation_time; // 涟漪创建时间
-     bool active;          // 涟漪是否激活
- } Ripple;
- 
- // 溅射水珠结构体 - 用于荷叶上的雨滴溅射效果
- typedef struct {
-     float x;              // X坐标
-     float y;              // Y坐标
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float speed_x;        // X方向速度
-     float speed_y;        // Y方向速度
-     float size;           // 水珠大小
-     SDL_Color color;      // 水珠颜色
-     Uint32 creation_time; // 创建时间
-     bool active;          // 是否激活
- } Splash;
- 
- // 闪电结构体
- typedef struct {
-     int segments;         // 闪电段数
-     int points[20][2];    // 闪电路径点 [seg][x/y]
-     int width;            // 闪电宽度
-     Uint8 brightness;     // 亮度
-     Uint32 creation_time; // 创建时间
-     int duration;         // 持续时间（毫秒）
-     bool active;          // 是否激活
-     int type;             // 闪电类型 (0=主闪电, 1=分支)
- } Lightning;
- 
- // 星星结构体
- typedef struct {
-     int x;                // X坐标
-     int y;                // Y坐标
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float brightness;     // 亮度
-     float twinkle_speed;  // 闪烁速度
- } Star;
- 
- // 山结构体
- typedef struct {
-     int x_offset;         // X偏移
-     float z;              // Z深度 (0-1, 0=远, 1=近)
-     int height;           // 山高
-     int width;            // 山宽
-     SDL_Color color;      // 山的颜色
- } Mountain;
- 
- // 芦苇结构体
- typedef struct {
-     float x;              // X坐标
-     float y;              // Y坐标底部位置
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     int height;           // 高度
-     float sway_offset;    // 摇摆偏移初始相位
-     float sway_speed;     // 摇摆速度
- } Reed;
- 
- // 荷叶结构体
- typedef struct {
-     float x;              // X坐标中心
-     float y;              // Y坐标中心
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float radius;         // 荷叶半径
-     float wave_phase;     // 波动相位
-     float wave_speed;     // 波动速度
-     float tilt_angle;     // 倾斜角度
-     SDL_Color color;      // 颜色
- } LotusPad;
- 
- // 荷花结构体
- typedef struct {
-     float x;              // X坐标
-     float y;              // Y坐标
-     float z;              // Z坐标 (0-1, 0=远, 1=近)
-     float size;           // 大小
-     float sway_phase;     // 摇摆相位
-     SDL_Color color;      // 颜色
-     int petal_count;      // 花瓣数量
- } LotusFlower;
- 
- // 全局变量
- SDL_Window* window = NULL;
- SDL_Renderer* renderer = NULL;
- Raindrop raindrops[MAX_RAINDROPS];
- Ripple ripples[MAX_RIPPLES];
- Splash splashes[MAX_SPLASHES];
- Lightning lightnings[MAX_LIGHTNING];
- Star stars[STARS_COUNT];
- Mountain mountains[MOUNTAIN_COUNT];
- Reed reeds[REED_COUNT];
- LotusPad lotus_pads[LOTUS_PAD_COUNT];
- LotusFlower lotus_flowers[LOTUS_FLOWER_COUNT];
- 
- int raindrop_count = 0;
- int ripple_count = 0;
- int splash_count = 0;
- int lightning_count = 0;
- Uint32 last_raindrop_time = 0;
- Uint32 last_lightning_time = 0;
- int raindrop_interval = 100;            // 雨滴生成间隔（毫秒），会根据天气变化
- float camera_x = 0.0f;                  // 摄像机X位置，用于视角移动
- float camera_target_x = 0.0f;           // 摄像机目标X位置
- bool camera_moving = false;             // 摄像机是否在移动
- 
- // 风和天气系统变量
- float wind_strength = 0.0f;             // 风力强度 (-1.0 到 1.0)
- float target_wind_strength = 0.0f;      // 目标风力强度
- float wind_change_speed = 0.02f;        // 风力变化速度
- WeatherState current_weather = WEATHER_LIGHT_RAIN;   // 当前天气状态
- WeatherState target_weather = WEATHER_LIGHT_RAIN;    // 目标天气状态
- Uint32 last_weather_change_time = 0;    // 上次天气变化时间
- Uint32 weather_duration_min = 10000;    // 天气持续最短时间（毫秒）
- Uint32 weather_duration_max = 30000;    // 天气持续最长时间（毫秒）
- float rain_surface_ratio = 0.3f;        // 直接落在水面的雨点比例
- int weather_intensity = 50;             // 天气剧烈程度 (0-100)
- Uint32 last_thunder_time = 0;           // 上次雷声时间
- bool thunder_active = false;            // 是否有雷声激活
- Uint32 thunder_start_time = 0;          // 雷声开始时间
- int thunder_duration = 0;               // 雷声持续时间
- 
- // 函数原型
- bool initialize();
- void close();
- void create_raindrop(bool on_surface);
- void update_raindrops(Uint32 current_time, float delta_time);
- void create_ripple(float x, float y, float z, SDL_Color color);
- void update_ripples(Uint32 current_time);
- void create_splash(float x, float y, float z, SDL_Color color);
- void update_splashes(Uint32 current_time, float delta_time);
- void create_lightning(int x, int y, int length, int width, int type);
- void update_lightning(Uint32 current_time);
- void initialize_stars();
- void initialize_mountains();
- void initialize_reeds();
- void initialize_lotus_pads();
- void initialize_lotus_flowers();
- void update_stars(Uint32 current_time);
- void update_lotus_pads(Uint32 current_time, float delta_time);
- void update_lotus_flowers(Uint32 current_time, float delta_time);
- void update_camera();
- void update_weather_and_wind(Uint32 current_time);
- void update_thunder(Uint32 current_time);
- bool check_raindrop_lotus_collision(Raindrop* raindrop);
- void render();
- void render_weather_info();
- SDL_Color get_random_color();
- float get_z_scale(float z);    // 根据z坐标获取缩放比例
- float project_x(float x, float z); // 根据z坐标投影x坐标
- SDL_Color adjust_color_by_depth(SDL_Color color, float z); // 根据深度调整颜色
- float get_rain_interval(WeatherState weather, int intensity); // 根据天气和强度获取雨滴间隔
- 
- int main(int argc, char* args[]) {
-     // 初始化随机数种子
-     srand(time(NULL));
-     
-     // 初始化SDL和资源
-     if (!initialize()) {
-         printf("初始化失败!\n");
-         printf("请确保已正确安装SDL2库并配置环境变量。\n");
-         printf("如果您在Windows下使用VSCode，请参考之前的配置说明。\n");
-         return -1;
-     }
-     
-     // 显示使用说明
-     printf("\n彩色雨夜荷塘 - 高级3D特效版\n");
-     printf("============ 控制说明 ============\n");
-     printf("1 键: 切换到和风细雨模式\n");
-     printf("2 键: 切换到中雨模式\n");
-     printf("3 键: 切换到暴风骤雨模式\n");
-     printf("4 键: 切换到电闪雷鸣模式\n");
-     printf("上/下方向键: 增加/减少天气强度\n");
-     printf("左/右方向键: 左/右移动视角\n");
-     printf("Home键: 重置视角\n");
-     printf("空格键: 手动触发闪电和雷声\n");
-     printf("ESC键: 退出程序\n");
-     printf("=================================\n\n");
-     
-     // 主循环标志
-     bool quit = false;
-     
-     // 事件处理器
-     SDL_Event e;
-     
-     // 设置上一次雨滴生成时间为当前时间
-     last_raindrop_time = SDL_GetTicks();
-     last_weather_change_time = SDL_GetTicks();
-     last_lightning_time = SDL_GetTicks();
-     last_thunder_time = SDL_GetTicks();
-     
-     // 初始化各种元素
-     initialize_stars();
-     initialize_mountains();
-     initialize_reeds();
-     initialize_lotus_pads();
-     initialize_lotus_flowers();
-     
-     // 时间跟踪
-     Uint32 last_frame_time = SDL_GetTicks();
-     
-     // 主循环
-     while (!quit) {
-         // 当前时间和时间增量
-         Uint32 current_time = SDL_GetTicks();
-         float delta_time = (current_time - last_frame_time) / 1000.0f;
-         last_frame_time = current_time;
-         
-         // 处理事件队列
-         while (SDL_PollEvent(&e) != 0) {
-             // 用户请求退出
-             if (e.type == SDL_QUIT) {
-                 quit = true;
-             }
-             // 用户按下按键
-             else if (e.type == SDL_KEYDOWN) {
-                 switch (e.key.keysym.sym) {
-                     case SDLK_ESCAPE:
-                         quit = true;
-                         break;
-                     case SDLK_1:
-                         // 切换到和风细雨
-                         target_weather = WEATHER_LIGHT_RAIN;
-                         break;
-                     case SDLK_2:
-                         // 切换到中雨
-                         target_weather = WEATHER_MEDIUM_RAIN;
-                         break;
-                     case SDLK_3:
-                         // 切换到暴风骤雨
-                         target_weather = WEATHER_HEAVY_RAIN;
-                         break;
-                     case SDLK_4:
-                         // 切换到雷暴
-                         target_weather = WEATHER_THUNDERSTORM;
-                         break;
-                     case SDLK_UP:
-                         // 增加天气剧烈程度
-                         weather_intensity += 10;
-                         if (weather_intensity > 100) weather_intensity = 100;
-                         break;
-                     case SDLK_DOWN:
-                         // 减少天气剧烈程度
-                         weather_intensity -= 10;
-                         if (weather_intensity < 0) weather_intensity = 0;
-                         break;
-                     case SDLK_SPACE:
-                         // 手动触发闪电和雷声
-                         if (current_weather >= WEATHER_HEAVY_RAIN) {
-                             int x = WINDOW_WIDTH / 2 + (rand() % 300) - 150;
-                             create_lightning(x, 0, 5 + rand() % 10, 2 + rand() % 3, 0);
-                             thunder_active = true;
-                             thunder_start_time = current_time;
-                             thunder_duration = 1000 + rand() % 2000;
-                         }
-                         break;
-                     case SDLK_LEFT:
-                         // 向左移动视角
-                         camera_target_x -= 100.0f;
-                         camera_moving = true;
-                         break;
-                     case SDLK_RIGHT:
-                         // 向右移动视角
-                         camera_target_x += 100.0f;
-                         camera_moving = true;
-                         break;
-                     case SDLK_HOME:
-                         // 重置视角
-                         camera_target_x = 0.0f;
-                         camera_moving = true;
-                         break;
-                 }
-             }
-         }
-         
-         // 更新天气和风系统
-         update_weather_and_wind(current_time);
-         
-         // 更新雷声
-         update_thunder(current_time);
-         
-         // 如果达到生成间隔，创建新雨滴
-         raindrop_interval = get_rain_interval(current_weather, weather_intensity);
-         if (current_time - last_raindrop_time >= raindrop_interval) {
-             // 根据rain_surface_ratio决定雨滴是直接落在水面还是从天空落下
-             bool on_surface = ((float)rand() / RAND_MAX) < rain_surface_ratio;
-             create_raindrop(on_surface);
-             last_raindrop_time = current_time;
-         }
-         
-         // 在雷暴天气下，随机产生闪电
-         if ((current_weather == WEATHER_THUNDERSTORM || 
-              (current_weather == WEATHER_HEAVY_RAIN && weather_intensity > 70)) && 
-             current_time - last_lightning_time > (10000 - weather_intensity * 80)) {
-             
-             // 闪电出现概率随强度增加
-             if (rand() % 100 < weather_intensity / 5) {
-                 int x = WINDOW_WIDTH / 2 + (rand() % 400) - 200;
-                 create_lightning(x, 0, 5 + rand() % 10, 2 + rand() % 3, 0);
-                 
-                 // 随机产生雷声
-                 if (rand() % 100 < 50) {
-                     thunder_active = true;
-                     thunder_start_time = current_time + 500 + rand() % 1000; // 闪电后延迟出现雷声
-                     thunder_duration = 1000 + rand() % 2000;
-                 }
-                 
-                 last_lightning_time = current_time;
-             }
-         }
-         
-         // 更新所有元素
-         update_raindrops(current_time, delta_time);
-         update_ripples(current_time);
-         update_splashes(current_time, delta_time);
-         update_lightning(current_time);
-         update_stars(current_time);
-         update_lotus_pads(current_time, delta_time);
-         update_lotus_flowers(current_time, delta_time);
-         update_camera();
-         
-         // 清屏
-         SDL_SetRenderDrawColor(renderer, 0, 0, 20, 255); // 深蓝色夜空
-         SDL_RenderClear(renderer);
-         
-         // 渲染所有元素
-         render();
-         
-         // 更新屏幕
-         SDL_RenderPresent(renderer);
-         
-         // 限制帧率为60 FPS
-         SDL_Delay(1000 / 60);
-     }
-     
-     // 释放资源并关闭SDL
-     close();
-     
-     return 0;
- }
- 
- bool initialize() {
-     // 初始化SDL
-     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-         printf("SDL无法初始化! SDL错误: %s\n", SDL_GetError());
-         return false;
-     }
-     
-     // 创建窗口
-     window = SDL_CreateWindow("彩色雨夜荷塘 (高级3D特效版)", 
-                              SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
-                              WINDOW_WIDTH, WINDOW_HEIGHT, 
-                              SDL_WINDOW_SHOWN);
-     if (window == NULL) {
-         printf("无法创建窗口! SDL错误: %s\n", SDL_GetError());
-         return false;
-     }
-     
-     // 创建渲染器 - 尝试使用硬件加速
-     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-     if (renderer == NULL) {
-         printf("警告：无法创建硬件加速渲染器，尝试创建软件渲染器...\n");
-         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-         
-         if (renderer == NULL) {
-             printf("无法创建任何渲染器! SDL错误: %s\n", SDL_GetError());
-             return false;
-         }
-         printf("成功创建软件渲染器。\n");
-     } else {
-         printf("成功创建硬件加速渲染器。\n");
-     }
-     
-     // 设置渲染器混合模式
-     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-     
-     // 初始化各种元素数组
-     for (int i = 0; i < MAX_RAINDROPS; i++) {
-         raindrops[i].active = false;
-     }
-     
-     for (int i = 0; i < MAX_RIPPLES; i++) {
-         ripples[i].active = false;
-     }
-     
-     for (int i = 0; i < MAX_SPLASHES; i++) {
-         splashes[i].active = false;
-     }
-     
-     for (int i = 0; i < MAX_LIGHTNING; i++) {
-         lightnings[i].active = false;
-     }
-     
-     printf("初始化完成，开始渲染彩色雨夜荷塘...\n");
-     return true;
- }
- 
- void close() {
-     // 销毁渲染器和窗口
-     if (renderer != NULL) {
-         SDL_DestroyRenderer(renderer);
-         renderer = NULL;
-     }
-     
-     if (window != NULL) {
-         SDL_DestroyWindow(window);
-         window = NULL;
-     }
-     
-     // 退出SDL子系统
-     SDL_Quit();
- }
- 
- void create_raindrop(bool on_surface) {
-     // 查找一个未激活的雨滴槽位
-     for (int i = 0; i < MAX_RAINDROPS; i++) {
-         if (!raindrops[i].active) {
-             raindrops[i].active = true;
-             raindrops[i].z = (float)rand() / RAND_MAX; // 随机深度 (0-1)
-             
-             // 根据深度，远处雨滴位置范围更大，模拟宽视场
-             float z_width_scale = 1.0f + (1.0f - raindrops[i].z) * 2.0f;
-             raindrops[i].x = (rand() % (int)(WINDOW_WIDTH * z_width_scale)) - 
-                               ((z_width_scale - 1.0f) * WINDOW_WIDTH / 2);
-             
-             if (on_surface) {
-                 // 直接在水面随机位置生成雨滴
-                 raindrops[i].y = POND_HEIGHT + rand() % (WINDOW_HEIGHT - POND_HEIGHT);
-                 raindrops[i].in_water = true;
-                 raindrops[i].water_time = SDL_GetTicks();
-                 
-                 // 创建涟漪
-                 create_ripple(raindrops[i].x, raindrops[i].y, raindrops[i].z, raindrops[i].color);
-             } else {
-                 // 在天空生成雨滴
-                 raindrops[i].in_water = false;
-                 raindrops[i].y = -10 - rand() % 50;  // 从窗口上方不同高度开始
-             }
-             
-             // 远处的雨滴看起来应该下落得更慢
-             float z_speed_scale = 0.2f + raindrops[i].z * 0.8f;
-             
-             // 根据天气强度调整下落速度
-             float intensity_factor = 1.0f + (weather_intensity / 100.0f);
-             
-             raindrops[i].speed_y = (RAINDROP_FALL_SPEED_MIN + 
-                                   (float)rand() / RAND_MAX * (RAINDROP_FALL_SPEED_MAX - RAINDROP_FALL_SPEED_MIN)) * 
-                                   z_speed_scale * intensity_factor;
-             
-             // 初始水平速度受风影响
-             raindrops[i].speed_x = wind_strength * 50.0f * z_speed_scale * intensity_factor;
-             
-             raindrops[i].color = get_random_color();
-             raindrops[i].size = 2 + rand() % 5;  // 基础大小在2到6之间
-             raindrops[i].creation_time = SDL_GetTicks();
-             raindrop_count++;
-             return;
-         }
-     }
- }
- 
- void create_ripple(float x, float y, float z, SDL_Color color) {
-     // 查找一个未激活的涟漪槽位
-     for (int i = 0; i < MAX_RIPPLES; i++) {
-         if (!ripples[i].active) {
-             ripples[i].active = true;
-             ripples[i].x = x;
-             ripples[i].y = y;
-             ripples[i].z = z;
-             ripples[i].radius = 0;
-             // 远处的涟漪最大半径应该更小
-             float z_radius_scale = get_z_scale(z);
-             ripples[i].max_radius = (20 + rand() % 40) * z_radius_scale;
-             ripples[i].color = color;
-             ripples[i].creation_time = SDL_GetTicks();
-             ripple_count++;
-             return;
-         }
-     }
- }
- 
- void create_splash(float x, float y, float z, SDL_Color color) {
-     // 创建多个溅射水珠
-     int splash_count = 5 + rand() % 8; // 5-12个水珠
-     
-     // 根据强度增加水珠数量
-     splash_count = (int)(splash_count * (1.0f + weather_intensity / 100.0f));
-     
-     for (int i = 0; i < splash_count; i++) {
-         // 查找未使用的溅射水珠槽位
-         for (int j = 0; j < MAX_SPLASHES; j++) {
-             if (!splashes[j].active) {
-                 splashes[j].active = true;
-                 splashes[j].x = x;
-                 splashes[j].y = y;
-                 splashes[j].z = z;
-                 
-                 // 随机速度方向，创造圆形溅射效果
-                 float angle = ((float)rand() / RAND_MAX) * 6.28f; // 0-2π
-                 
-                 // 根据天气强度调整速度
-                 float intensity_factor = 1.0f + (weather_intensity / 100.0f);
-                 float speed = (50.0f + ((float)rand() / RAND_MAX) * 150.0f) * intensity_factor; // 50-200，受强度影响
-                 
-                 // 风会影响水珠方向
-                 angle += wind_strength * 0.5f;
-                 
-                 splashes[j].speed_x = cosf(angle) * speed;
-                 splashes[j].speed_y = sinf(angle) * speed - 200.0f; // 初始向上的趋势
-                 
-                 splashes[j].size = 1.0f + ((float)rand() / RAND_MAX) * 2.0f; // 1-3
-                 splashes[j].color = color;
-                 splashes[j].creation_time = SDL_GetTicks();
-                 splash_count++;
-                 break;
-             }
-         }
-     }
- }
- 
- void create_lightning(int x, int y, int segments, int width, int type) {
-     // 查找未使用的闪电槽位
-     for (int i = 0; i < MAX_LIGHTNING; i++) {
-         if (!lightnings[i].active) {
-             lightnings[i].active = true;
-             lightnings[i].segments = segments;
-             lightnings[i].width = width;
-             lightnings[i].type = type;
-             
-             // 亮度受天气强度影响
-             lightnings[i].brightness = 180 + rand() % 75 + weather_intensity / 2; // 180-255 + 强度影响
-             if (lightnings[i].brightness > 255) lightnings[i].brightness = 255;
-             
-             lightnings[i].creation_time = SDL_GetTicks();
-             
-             // 根据强度调整闪电持续时间
-             float duration_factor = 1.0f + (weather_intensity / 100.0f);
-             lightnings[i].duration = (int)((100 + rand() % 200) * duration_factor); // 100-300ms，受强度影响
-             
-             // 设置闪电路径
-             int current_x = x;
-             int current_y = y;
-             lightnings[i].points[0][0] = current_x;
-             lightnings[i].points[0][1] = current_y;
-             
-             // 根据强度调整闪电的锯齿度和分支概率
-             float zigzag_factor = 40.0f * (1.0f + weather_intensity / 200.0f);
-             float branch_prob = 30.0f * (1.0f + weather_intensity / 150.0f);
-             
-             for (int j = 1; j <= segments; j++) {
-                 // 闪电路径随机偏移 - 受强度影响
-                 current_x += (rand() % (int)zigzag_factor) - (int)(zigzag_factor / 2);
-                 current_y += WINDOW_HEIGHT / segments;
-                 
-                 if (current_y > POND_HEIGHT) current_y = POND_HEIGHT; // 不超过水面
-                 
-                 lightnings[i].points[j][0] = current_x;
-                 lightnings[i].points[j][1] = current_y;
-                 
-                 // 随机生成分支闪电 - 受强度影响
-                 if (type == 0 && segments > 3 && j > 1 && j < segments - 1 && rand() % 100 < branch_prob) {
-                     int branch_segments = segments / 2;
-                     if (weather_intensity > 70) branch_segments += 1; // 高强度时分支更长
-                     create_lightning(current_x, current_y, branch_segments, width - 1, 1);
-                 }
-             }
-             
-             lightning_count++;
-             return;
-         }
-     }
- }
- void initialize_stars() {
+// 窗口大小和模拟参数常量
+#define WINDOW_WIDTH 800
+#define WINDOW_HEIGHT 600
+#define MAX_RAINDROPS 1000              // 增加雨滴上限以支持暴雨场景
+#define MAX_RIPPLES 500                 // 涟漪上限
+#define MAX_SPLASHES 300                // 溅射水珠上限
+#define MAX_LIGHTNING 5                 // 最大同时出现的闪电数
+#define POND_HEIGHT (WINDOW_HEIGHT * 2 / 3)  // 荷塘位于窗口高度的2/3处
+#define RIPPLE_LIFETIME 2000            // 涟漪生命周期（毫秒）
+#define SPLASH_LIFETIME 800             // 溅射水珠生命周期（毫秒）
+#define LIGHTNING_LIFETIME 500          // 闪电生命周期（毫秒）
+#define RAINDROP_FALL_SPEED_MIN 200
+#define RAINDROP_FALL_SPEED_MAX 500     // 增加最大下落速度
+#define RIPPLE_SPEED 30                 // 涟漪扩散速度
+#define STARS_COUNT 300                 // 星星数量
+#define MOUNTAIN_COUNT 5                // 山的数量
+#define REED_COUNT 20                   // 芦苇数量
+#define LOTUS_PAD_COUNT 25              // 荷叶数量
+#define LOTUS_FLOWER_COUNT 8            // 荷花数量
+
+// 天气状态枚举
+typedef enum {
+    WEATHER_LIGHT_RAIN,    // 和风细雨
+    WEATHER_MEDIUM_RAIN,   // 中雨
+    WEATHER_HEAVY_RAIN,    // 暴风骤雨
+    WEATHER_THUNDERSTORM,  // 雷暴
+    WEATHER_COUNT          // 枚举计数
+} WeatherState;
+
+// 雨滴结构体
+typedef struct {
+    float x;              // X坐标
+    float y;              // Y坐标
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float speed_y;        // 垂直下落速度
+    float speed_x;        // 水平速度（受风影响）
+    SDL_Color color;      // 雨滴颜色
+    int size;             // 雨滴基础大小
+    bool active;          // 雨滴是否激活
+    bool in_water;        // 雨滴是否已入水
+    Uint32 creation_time; // 雨滴创建时间
+    Uint32 water_time;    // 雨滴入水时间
+} Raindrop;
+
+// 涟漪结构体
+typedef struct {
+    float x;              // X坐标
+    float y;              // Y坐标
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float radius;         // 当前半径
+    float max_radius;     // 最大半径
+    SDL_Color color;      // 涟漪颜色
+    Uint32 creation_time; // 涟漪创建时间
+    bool active;          // 涟漪是否激活
+} Ripple;
+
+// 溅射水珠结构体 - 用于荷叶上的雨滴溅射效果
+typedef struct {
+    float x;              // X坐标
+    float y;              // Y坐标
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float speed_x;        // X方向速度
+    float speed_y;        // Y方向速度
+    float size;           // 水珠大小
+    SDL_Color color;      // 水珠颜色
+    Uint32 creation_time; // 创建时间
+    bool active;          // 是否激活
+} Splash;
+
+// 闪电结构体
+typedef struct {
+    int segments;         // 闪电段数
+    int points[20][2];    // 闪电路径点 [seg][x/y]
+    int width;            // 闪电宽度
+    Uint8 brightness;     // 亮度
+    Uint32 creation_time; // 创建时间
+    int duration;         // 持续时间（毫秒）
+    bool active;          // 是否激活
+    int type;             // 闪电类型 (0=主闪电, 1=分支)
+} Lightning;
+
+// 星星结构体
+typedef struct {
+    int x;                // X坐标
+    int y;                // Y坐标
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float brightness;     // 亮度
+    float twinkle_speed;  // 闪烁速度
+} Star;
+
+// 山结构体
+typedef struct {
+    int x_offset;         // X偏移
+    float z;              // Z深度 (0-1, 0=远, 1=近)
+    int height;           // 山高
+    int width;            // 山宽
+    SDL_Color color;      // 山的颜色
+} Mountain;
+
+// 芦苇结构体
+typedef struct {
+    float x;              // X坐标
+    float y;              // Y坐标底部位置
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    int height;           // 高度
+    float sway_offset;    // 摇摆偏移初始相位
+    float sway_speed;     // 摇摆速度
+} Reed;
+
+// 荷叶结构体
+typedef struct {
+    float x;              // X坐标中心
+    float y;              // Y坐标中心
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float radius;         // 荷叶半径
+    float wave_phase;     // 波动相位
+    float wave_speed;     // 波动速度
+    float tilt_angle;     // 倾斜角度
+    SDL_Color color;      // 颜色
+} LotusPad;
+
+// 荷花结构体
+typedef struct {
+    float x;              // X坐标
+    float y;              // Y坐标
+    float z;              // Z坐标 (0-1, 0=远, 1=近)
+    float size;           // 大小
+    float sway_phase;     // 摇摆相位
+    SDL_Color color;      // 颜色
+    int petal_count;      // 花瓣数量
+} LotusFlower;
+
+/* struct to moniter performance */
+typedef struct {
+    Uint64 freq;           // 计时器频率
+    Uint64 frame_start;    // 帧开始时间
+    Uint64 frame_end;      // 帧结束时间
+    double input_time;
+    double frame_time;     // 本帧耗时（秒）
+    double avg_frame_time; // 平均帧时间（滑动平均）
+    double physics_time;   // 物理计算耗时
+    double render_time;    // 渲染耗时
+    int frame_count;       // 帧计数器
+} PerformanceStats;
+
+// 全局变量 global para
+SDL_Window* window = NULL;
+SDL_Renderer* renderer = NULL;
+Raindrop raindrops[MAX_RAINDROPS];
+Ripple ripples[MAX_RIPPLES];
+Splash splashes[MAX_SPLASHES];
+Lightning lightnings[MAX_LIGHTNING];
+SDL_Texture *moon_texture = NULL; //use texture to improve performance
+Star stars[STARS_COUNT];
+Mountain mountains[MOUNTAIN_COUNT];
+Reed reeds[REED_COUNT];
+LotusPad lotus_pads[LOTUS_PAD_COUNT];
+LotusFlower lotus_flowers[LOTUS_FLOWER_COUNT];
+PerformanceStats perf;
+
+int raindrop_count = 0;
+int ripple_count = 0;
+int splash_count = 0;
+int lightning_count = 0;
+Uint32 last_raindrop_time = 0;
+Uint32 last_lightning_time = 0;
+int raindrop_interval = 100;            // 雨滴生成间隔（毫秒），会根据天气变化
+float camera_x = 0.0f;                  // 摄像机X位置，用于视角移动
+float camera_target_x = 0.0f;           // 摄像机目标X位置
+bool camera_moving = false;             // 摄像机是否在移动
+
+// 风和天气系统变量
+float wind_strength = 0.0f;             // 风力强度 (-1.0 到 1.0)
+float target_wind_strength = 0.0f;      // 目标风力强度
+float wind_change_speed = 0.02f;        // 风力变化速度
+WeatherState current_weather = WEATHER_LIGHT_RAIN;   // 当前天气状态
+WeatherState target_weather = WEATHER_LIGHT_RAIN;    // 目标天气状态
+Uint32 last_weather_change_time = 0;    // 上次天气变化时间
+Uint32 weather_duration_min = 10000;    // 天气持续最短时间（毫秒）
+Uint32 weather_duration_max = 30000;    // 天气持续最长时间（毫秒）
+float rain_surface_ratio = 0.3f;        // 直接落在水面的雨点比例
+int weather_intensity = 50;             // 天气剧烈程度 (0-100)
+Uint32 last_thunder_time = 0;           // 上次雷声时间
+bool thunder_active = false;            // 是否有雷声激活
+Uint32 thunder_start_time = 0;          // 雷声开始时间
+int thunder_duration = 0;               // 雷声持续时间
+
+// 函数原型 function prototype
+bool initialize();
+void close();
+void draw_crater(SDL_Surface* surface, int cx, int cy, int radius, Uint32 color);
+void create_raindrop(bool on_surface);
+void update_raindrops(Uint32 current_time, float delta_time);
+void create_ripple(float x, float y, float z, SDL_Color color);
+void update_ripples(Uint32 current_time);
+void create_splash(float x, float y, float z, SDL_Color color);
+void update_splashes(Uint32 current_time, float delta_time);
+void create_lightning(int x, int y, int length, int width, int type);
+void update_lightning(Uint32 current_time);
+void initialize_moon();
+void initialize_stars();
+void initialize_mountains();
+void initialize_reeds();
+void initialize_lotus_pads();
+void initialize_lotus_flowers();
+void update_stars(Uint32 current_time);
+void update_lotus_pads(Uint32 current_time, float delta_time);
+void update_lotus_flowers(Uint32 current_time, float delta_time);
+void update_camera();
+void update_weather_and_wind(Uint32 current_time);
+void update_thunder(Uint32 current_time);
+bool check_raindrop_lotus_collision(Raindrop* raindrop);
+void render();
+void render_weather_info();
+SDL_Color get_random_color();
+float get_z_scale(float z);    // 根据z坐标获取缩放比例
+float project_x(float x, float z); // 根据z坐标投影x坐标
+SDL_Color adjust_color_by_depth(SDL_Color color, float z); // 根据深度调整颜色
+float get_rain_interval(WeatherState weather, int intensity); // 根据天气和强度获取雨滴间隔
+
+int main(int argc, char* args[]) {
+    /* allocate a terminal for this GUI program */
+    AllocConsole();
+    freopen("CONIN$", "r", stdin);
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
+    // 初始化随机数种子
+    srand(time(NULL));
+    
+    // 初始化SDL和资源
+    if (!initialize()) {
+        printf("初始化失败!\n");
+        printf("请确保已正确安装SDL2库并配置环境变量。\n");
+        printf("如果您在Windows下使用VSCode，请参考之前的配置说明。\n");
+        return -1;
+    }
+    
+    // 显示使用说明
+    printf("\n彩色雨夜荷塘 - 高级3D特效版\n");
+    printf("============ 控制说明 ============\n");
+    printf("1 键: 切换到和风细雨模式\n");
+    printf("2 键: 切换到中雨模式\n");
+    printf("3 键: 切换到暴风骤雨模式\n");
+    printf("4 键: 切换到电闪雷鸣模式\n");
+    printf("上/下方向键: 增加/减少天气强度\n");
+    printf("左/右方向键: 左/右移动视角\n");
+    printf("Home键: 重置视角\n");
+    printf("空格键: 手动触发闪电和雷声\n");
+    printf("ESC键: 退出程序\n");
+    printf("=================================\n\n");
+
+    
+    // 主循环标志
+    bool quit = false;
+    
+    // 事件处理器
+    SDL_Event e;
+    
+    // 设置上一次雨滴生成时间为当前时间
+    last_raindrop_time = SDL_GetTicks();
+    last_weather_change_time = SDL_GetTicks();
+    last_lightning_time = SDL_GetTicks();
+    last_thunder_time = SDL_GetTicks();
+    
+    // 初始化各种元素
+    initialize_moon();
+    initialize_stars();
+    initialize_mountains();
+    initialize_reeds();
+    initialize_lotus_pads();
+    initialize_lotus_flowers();
+    
+    // 时间跟踪
+    Uint32 last_frame_time = SDL_GetTicks();
+    
+    // 主循环
+    while (!quit) {
+        /* record the time this frame starts */
+        perf.frame_start = SDL_GetPerformanceCounter();
+
+        // 当前时间和时间增量
+        Uint32 current_time = SDL_GetTicks();
+        float delta_time = (current_time - last_frame_time) / 1000.0f;
+        last_frame_time = current_time;
+        
+        /* ==== [1] tackle input events ====*/
+        // 处理事件队列
+        Uint64 input_start = SDL_GetPerformanceCounter();
+        while (SDL_PollEvent(&e) != 0) {
+            // 用户请求退出
+            if (e.type == SDL_QUIT) {
+                quit = true;
+            }
+            // 用户按下按键
+            else if (e.type == SDL_KEYDOWN) {
+                switch (e.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        quit = true;
+                        break;
+                    case SDLK_1:
+                        // 切换到和风细雨
+                        target_weather = WEATHER_LIGHT_RAIN;
+                        break;
+                    case SDLK_2:
+                        // 切换到中雨
+                        target_weather = WEATHER_MEDIUM_RAIN;
+                        break;
+                    case SDLK_3:
+                        // 切换到暴风骤雨
+                        target_weather = WEATHER_HEAVY_RAIN;
+                        break;
+                    case SDLK_4:
+                        // 切换到雷暴
+                        target_weather = WEATHER_THUNDERSTORM;
+                        break;
+                    case SDLK_UP:
+                        // 增加天气剧烈程度
+                        weather_intensity += 10;
+                        if (weather_intensity > 100) weather_intensity = 100;
+                        break;
+                    case SDLK_DOWN:
+                        // 减少天气剧烈程度
+                        weather_intensity -= 10;
+                        if (weather_intensity < 0) weather_intensity = 0;
+                        break;
+                    case SDLK_SPACE:
+                        // 手动触发闪电和雷声
+                        if (current_weather >= WEATHER_HEAVY_RAIN) {
+                            int x = WINDOW_WIDTH / 2 + (rand() % 300) - 150;
+                            create_lightning(x, 0, 5 + rand() % 10, 2 + rand() % 3, 0);
+                            thunder_active = true;
+                            thunder_start_time = current_time;
+                            thunder_duration = 1000 + rand() % 2000;
+                        }
+                        break;
+                    case SDLK_LEFT:
+                        // 向左移动视角
+                        camera_target_x -= 100.0f;
+                        camera_moving = true;
+                        break;
+                    case SDLK_RIGHT:
+                        // 向右移动视角
+                        camera_target_x += 100.0f;
+                        camera_moving = true;
+                        break;
+                    case SDLK_HOME:
+                        // 重置视角
+                        camera_target_x = 0.0f;
+                        camera_moving = true;
+                        break;
+                }
+            }
+        }
+        perf.input_time = (SDL_GetPerformanceCounter() - input_start) * 1000.0 / perf.freq;
+        
+        /* ==== [2] unpdate physical system */
+        Uint64 physics_start = SDL_GetPerformanceCounter();
+        // 更新天气和风系统
+        update_weather_and_wind(current_time);
+        // 更新雷声
+        update_thunder(current_time);
+        // 如果达到生成间隔，创建新雨滴
+        raindrop_interval = get_rain_interval(current_weather, weather_intensity);
+        if (current_time - last_raindrop_time >= raindrop_interval) {
+            // 根据rain_surface_ratio决定雨滴是直接落在水面还是从天空落下
+            bool on_surface = ((float)rand() / RAND_MAX) < rain_surface_ratio;
+            create_raindrop(on_surface);
+            last_raindrop_time = current_time;
+        } 
+        // 在雷暴天气下，随机产生闪电
+        if ((current_weather == WEATHER_THUNDERSTORM || 
+             (current_weather == WEATHER_HEAVY_RAIN && weather_intensity > 70)) && 
+            current_time - last_lightning_time > (10000 - weather_intensity * 80)) {            
+            // 闪电出现概率随强度增加
+            if (rand() % 100 < weather_intensity / 5) {
+                int x = WINDOW_WIDTH / 2 + (rand() % 400) - 200;
+                create_lightning(x, 0, 5 + rand() % 10, 2 + rand() % 3, 0);                
+                // 随机产生雷声
+                if (rand() % 100 < 50) {
+                    thunder_active = true;
+                    thunder_start_time = current_time + 500 + rand() % 1000; // 闪电后延迟出现雷声
+                    thunder_duration = 1000 + rand() % 2000;
+                }                
+                last_lightning_time = current_time;
+            }
+        }
+        // 更新所有元素
+        update_raindrops(current_time, delta_time);
+        update_ripples(current_time);
+        update_splashes(current_time, delta_time);
+        update_lightning(current_time);
+        update_stars(current_time);
+        update_lotus_pads(current_time, delta_time);
+        update_lotus_flowers(current_time, delta_time);
+        update_camera();
+        perf.physics_time = (SDL_GetPerformanceCounter() - physics_start) * 1000.0 / perf.freq;
+
+        /* ==== [3] rendering ==== */
+        Uint64 rander_start = SDL_GetPerformanceCounter();
+        // 清屏
+        SDL_SetRenderDrawColor(renderer, 0, 0, 20, 255); // 深蓝色夜空
+        SDL_RenderClear(renderer);        
+        // 渲染所有元素
+        render();        
+        // 更新屏幕
+        SDL_RenderPresent(renderer); 
+        perf.render_time = (SDL_GetPerformanceCounter() - rander_start) * 1000.0 / perf.freq;
+
+        /* ==== [4] compute performance data ==== */
+        perf.frame_end = SDL_GetPerformanceCounter();
+        perf.frame_time = (perf.frame_end - perf.frame_start) * 1000.0 / perf.freq; // 转换为毫秒
+        perf.avg_frame_time = perf.avg_frame_time * 0.9 + perf.frame_time * 0.1; // 滑动平均
+        perf.frame_count++;
+        if (perf.frame_count % 60 == 0) { //output performance data every 60 frames
+            printf("[Frame %d] Total: %.1fms (Phys:%.1fms Render:%.1fms Input:%.1fms) FPS: %.1f\n",
+               perf.frame_count,
+               perf.avg_frame_time,
+               perf.physics_time,
+               perf.render_time,
+               perf.input_time,
+               1000.0 / perf.avg_frame_time);
+        }
+
+        // 限制帧率为60 FPS
+        SDL_Delay(1000 / 60);
+    }
+    
+    // 释放资源并关闭SDL
+    close();
+    
+    return 0;
+}
+
+bool initialize() {
+    // 初始化SDL
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL无法初始化! SDL错误: %s\n", SDL_GetError());
+        return false;
+    }
+    
+    // 创建窗口
+    window = SDL_CreateWindow("彩色雨夜荷塘 (高级3D特效版)", 
+                             SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
+                             WINDOW_WIDTH, WINDOW_HEIGHT, 
+                             SDL_WINDOW_SHOWN);
+    if (window == NULL) {
+        printf("无法创建窗口! SDL错误: %s\n", SDL_GetError());
+        return false;
+    }
+    
+    // 创建渲染器 - 尝试使用硬件加速
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (renderer == NULL) {
+        printf("警告：无法创建硬件加速渲染器，尝试创建软件渲染器...\n");
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        
+        if (renderer == NULL) {
+            printf("无法创建任何渲染器! SDL错误: %s\n", SDL_GetError());
+            return false;
+        }
+        printf("成功创建软件渲染器。\n");
+    } else {
+        printf("成功创建硬件加速渲染器。\n");
+    }
+    
+    // 设置渲染器混合模式
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
+    // 初始化各种元素数组
+    for (int i = 0; i < MAX_RAINDROPS; i++) {
+        raindrops[i].active = false;
+    }
+    
+    for (int i = 0; i < MAX_RIPPLES; i++) {
+        ripples[i].active = false;
+    }
+    
+    for (int i = 0; i < MAX_SPLASHES; i++) {
+        splashes[i].active = false;
+    }
+    
+    for (int i = 0; i < MAX_LIGHTNING; i++) {
+        lightnings[i].active = false;
+    }
+
+    /* initialize performance monitor */
+    perf.freq = SDL_GetPerformanceFrequency();
+    perf.avg_frame_time = 0.0;
+    perf.frame_count = 0;
+    
+    printf("初始化完成，开始渲染彩色雨夜荷塘...\n");
+    return true;
+}
+
+void close() {
+    /* destroy textures */
+    if (moon_texture != NULL) {
+        SDL_DestroyTexture(moon_texture);
+        moon_texture = NULL;
+    }
+    
+    // 销毁渲染器和窗口
+    if (renderer != NULL) {
+        SDL_DestroyRenderer(renderer);
+        renderer = NULL;
+    }
+    
+    if (window != NULL) {
+        SDL_DestroyWindow(window);
+        window = NULL;
+    }
+    
+    // 退出SDL子系统
+    SDL_Quit();
+}
+
+void draw_crater(SDL_Surface* surface, int cx, int cy, int radius, Uint32 color) {
+    for (int y = -radius; y <= radius; y++) {
+        for (int x = -radius; x <= radius; x++) {
+            if (x*x + y*y <= radius*radius) {
+                int px = cx + x;
+                int py = cy + y;
+                if (px >= 0 && px < surface->w && py >= 0 && py < surface->h) {
+                    ((Uint32*)surface->pixels)[py * surface->pitch/4 + px] = color;
+                }
+            }
+        }
+    }
+}
+
+void create_raindrop(bool on_surface) {
+    // 查找一个未激活的雨滴槽位
+    for (int i = 0; i < MAX_RAINDROPS; i++) {
+        if (!raindrops[i].active) {
+            raindrops[i].active = true;
+            raindrops[i].z = (float)rand() / RAND_MAX; // 随机深度 (0-1)
+            
+            // 根据深度，远处雨滴位置范围更大，模拟宽视场
+            float z_width_scale = 1.0f + (1.0f - raindrops[i].z) * 2.0f;
+            raindrops[i].x = (rand() % (int)(WINDOW_WIDTH * z_width_scale)) - 
+                              ((z_width_scale - 1.0f) * WINDOW_WIDTH / 2);
+            
+            if (on_surface) {
+                // 直接在水面随机位置生成雨滴
+                raindrops[i].y = POND_HEIGHT + rand() % (WINDOW_HEIGHT - POND_HEIGHT);
+                raindrops[i].in_water = true;
+                raindrops[i].water_time = SDL_GetTicks();
+                
+                // 创建涟漪
+                create_ripple(raindrops[i].x, raindrops[i].y, raindrops[i].z, raindrops[i].color);
+            } else {
+                // 在天空生成雨滴
+                raindrops[i].in_water = false;
+                raindrops[i].y = -10 - rand() % 50;  // 从窗口上方不同高度开始
+            }
+            
+            // 远处的雨滴看起来应该下落得更慢
+            float z_speed_scale = 0.2f + raindrops[i].z * 0.8f;
+            
+            // 根据天气强度调整下落速度
+            float intensity_factor = 1.0f + (weather_intensity / 100.0f);
+            
+            raindrops[i].speed_y = (RAINDROP_FALL_SPEED_MIN + 
+                                  (float)rand() / RAND_MAX * (RAINDROP_FALL_SPEED_MAX - RAINDROP_FALL_SPEED_MIN)) * 
+                                  z_speed_scale * intensity_factor;
+            
+            // 初始水平速度受风影响
+            raindrops[i].speed_x = wind_strength * 50.0f * z_speed_scale * intensity_factor;
+            
+            raindrops[i].color = get_random_color();
+            raindrops[i].size = 2 + rand() % 5;  // 基础大小在2到6之间
+            raindrops[i].creation_time = SDL_GetTicks();
+            raindrop_count++;
+            return;
+        }
+    }
+}
+
+void create_ripple(float x, float y, float z, SDL_Color color) {
+    // 查找一个未激活的涟漪槽位
+    for (int i = 0; i < MAX_RIPPLES; i++) {
+        if (!ripples[i].active) {
+            ripples[i].active = true;
+            ripples[i].x = x;
+            ripples[i].y = y;
+            ripples[i].z = z;
+            ripples[i].radius = 0;
+            // 远处的涟漪最大半径应该更小
+            float z_radius_scale = get_z_scale(z);
+            ripples[i].max_radius = (20 + rand() % 40) * z_radius_scale;
+            ripples[i].color = color;
+            ripples[i].creation_time = SDL_GetTicks();
+            ripple_count++;
+            return;
+        }
+    }
+}
+
+void create_splash(float x, float y, float z, SDL_Color color) {
+    // 创建多个溅射水珠
+    int splash_count = 5 + rand() % 8; // 5-12个水珠
+    
+    // 根据强度增加水珠数量
+    splash_count = (int)(splash_count * (1.0f + weather_intensity / 100.0f));
+    
+    for (int i = 0; i < splash_count; i++) {
+        // 查找未使用的溅射水珠槽位
+        for (int j = 0; j < MAX_SPLASHES; j++) {
+            if (!splashes[j].active) {
+                splashes[j].active = true;
+                splashes[j].x = x;
+                splashes[j].y = y;
+                splashes[j].z = z;
+                
+                // 随机速度方向，创造圆形溅射效果
+                float angle = ((float)rand() / RAND_MAX) * 6.28f; // 0-2π
+                
+                // 根据天气强度调整速度
+                float intensity_factor = 1.0f + (weather_intensity / 100.0f);
+                float speed = (50.0f + ((float)rand() / RAND_MAX) * 150.0f) * intensity_factor; // 50-200，受强度影响
+                
+                // 风会影响水珠方向
+                angle += wind_strength * 0.5f;
+                
+                splashes[j].speed_x = cosf(angle) * speed;
+                splashes[j].speed_y = sinf(angle) * speed - 200.0f; // 初始向上的趋势
+                
+                splashes[j].size = 1.0f + ((float)rand() / RAND_MAX) * 2.0f; // 1-3
+                splashes[j].color = color;
+                splashes[j].creation_time = SDL_GetTicks();
+                splash_count++;
+                break;
+            }
+        }
+    }
+}
+
+void create_lightning(int x, int y, int segments, int width, int type) {
+    // 查找未使用的闪电槽位
+    for (int i = 0; i < MAX_LIGHTNING; i++) {
+        if (!lightnings[i].active) {
+            lightnings[i].active = true;
+            lightnings[i].segments = segments;
+            lightnings[i].width = width;
+            lightnings[i].type = type;
+            
+            // 亮度受天气强度影响
+            lightnings[i].brightness = 180 + rand() % 75 + weather_intensity / 2; // 180-255 + 强度影响
+            if (lightnings[i].brightness > 255) lightnings[i].brightness = 255;
+            
+            lightnings[i].creation_time = SDL_GetTicks();
+            
+            // 根据强度调整闪电持续时间
+            float duration_factor = 1.0f + (weather_intensity / 100.0f);
+            lightnings[i].duration = (int)((100 + rand() % 200) * duration_factor); // 100-300ms，受强度影响
+            
+            // 设置闪电路径
+            int current_x = x;
+            int current_y = y;
+            lightnings[i].points[0][0] = current_x;
+            lightnings[i].points[0][1] = current_y;
+            
+            // 根据强度调整闪电的锯齿度和分支概率
+            float zigzag_factor = 40.0f * (1.0f + weather_intensity / 200.0f);
+            float branch_prob = 30.0f * (1.0f + weather_intensity / 150.0f);
+            
+            for (int j = 1; j <= segments; j++) {
+                // 闪电路径随机偏移 - 受强度影响
+                current_x += (rand() % (int)zigzag_factor) - (int)(zigzag_factor / 2);
+                current_y += WINDOW_HEIGHT / segments;
+                
+                if (current_y > POND_HEIGHT) current_y = POND_HEIGHT; // 不超过水面
+                
+                lightnings[i].points[j][0] = current_x;
+                lightnings[i].points[j][1] = current_y;
+                
+                // 随机生成分支闪电 - 受强度影响
+                if (type == 0 && segments > 3 && j > 1 && j < segments - 1 && rand() % 100 < branch_prob) {
+                    int branch_segments = segments / 2;
+                    if (weather_intensity > 70) branch_segments += 1; // 高强度时分支更长
+                    create_lightning(current_x, current_y, branch_segments, width - 1, 1);
+                }
+            }
+            
+            lightning_count++;
+            return;
+        }
+    }
+}
+
+void initialize_moon() {
+    /* initialize moon texture */
+    SDL_Surface* moon_surface = SDL_CreateRGBSurface(0, 80, 80, 32, 
+        0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+    if (!moon_surface) {
+        printf("无法创建月亮表面! SDL错误: %s\n", SDL_GetError());
+        return;
+    }
+    // 绘制月亮到表面
+    SDL_FillRect(moon_surface, NULL, SDL_MapRGBA(moon_surface->format, 0,0,0,0)); // 透明背景
+    SDL_LockSurface(moon_surface);
+    // 绘制月亮主体
+    const int moon_radius = 40;
+    const int center_x = 40;
+    const int center_y = 40;
+    Uint32 moon_color = SDL_MapRGBA(moon_surface->format, 230,230,230,255);
+    for (int y = -moon_radius; y <= moon_radius; y++) {
+        for (int x = -moon_radius; x <= moon_radius; x++) {
+            if (x*x + y*y <= moon_radius*moon_radius) {
+                int px = center_x + x;
+                int py = center_y + y;
+                if (px >= 0 && px < 80 && py >= 0 && py < 80) {
+                    ((Uint32*)moon_surface->pixels)[py * moon_surface->pitch/4 + px] = moon_color;
+                }
+            }
+        }
+    }
+    // 绘制陨石坑（预渲染到纹理）
+    Uint32 crater_color = SDL_MapRGBA(moon_surface->format, 200,200,200,255);
+    // 主陨石坑
+    draw_crater(moon_surface, 25, 30, 10, crater_color);
+    // 其他小陨石坑
+    draw_crater(moon_surface, 50, 35, 5, crater_color);
+    draw_crater(moon_surface, 35, 50, 7, crater_color);
+    SDL_UnlockSurface(moon_surface);
+    // 创建纹理
+    moon_texture = SDL_CreateTextureFromSurface(renderer, moon_surface);
+    SDL_FreeSurface(moon_surface);
+    if (!moon_texture) {
+        printf("无法创建月亮纹理! SDL错误: %s\n", SDL_GetError());
+        return;
+    }
+}
+
+void initialize_stars() {
     for (int i = 0; i < STARS_COUNT; i++) {
         stars[i].z = (float)rand() / RAND_MAX; // 随机深度 (0-1)
         
@@ -1172,38 +1288,26 @@ void render() {
     
     // 月亮主体
     Uint8 moon_brightness = (Uint8)(230 * moon_visibility);
-    
+
     // 闪电会增加月亮亮度
     if (lightning_flash) {
         moon_brightness = (Uint8)fminf(255, moon_brightness + flash_brightness);
     }
     
-    SDL_SetRenderDrawColor(renderer, moon_brightness, moon_brightness, (Uint8)(moon_brightness * 0.9f), 255);
-    for (int y = -moon_radius; y <= moon_radius; y++) {
-        for (int x = -moon_radius; x <= moon_radius; x++) {
-            if (x*x + y*y <= moon_radius*moon_radius) {
-                SDL_RenderDrawPoint(renderer, projected_moon_x + x, moon_y + y);
-            }
-        }
-    }
-    
-    // 月亮上的陨石坑
-    Uint8 crater_brightness = (Uint8)(200 * moon_visibility);
-    if (lightning_flash) {
-        crater_brightness = (Uint8)fminf(255, crater_brightness + flash_brightness);
-    }
-    
-    SDL_SetRenderDrawColor(renderer, crater_brightness, crater_brightness, (Uint8)(crater_brightness * 0.9f), 255);
-    int crater1_x = projected_moon_x - 15;
-    int crater1_y = moon_y - 10;
-    int crater1_radius = 10;
-    for (int y = -crater1_radius; y <= crater1_radius; y++) {
-        for (int x = -crater1_radius; x <= crater1_radius; x++) {
-            if (x*x + y*y <= crater1_radius*crater1_radius) {
-                SDL_RenderDrawPoint(renderer, crater1_x + x, crater1_y + y);
-            }
-        }
-    }
+    SDL_Rect moon_rect = {
+        projected_moon_x - 40,
+        moon_y -40,
+        80, 80
+    };
+
+    /* draw the texture */
+    SDL_SetTextureColorMod(
+        moon_texture,
+        moon_brightness,
+        moon_brightness,
+        (Uint8)(moon_brightness * 0.9f)
+    );
+    SDL_RenderCopy(renderer, moon_texture, NULL, &moon_rect);
     
     // 在暴风雨或中雨时绘制云层
     if (current_weather >= WEATHER_MEDIUM_RAIN) {
