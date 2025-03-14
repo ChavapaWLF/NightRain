@@ -132,6 +132,7 @@ typedef struct {
     float wave_speed;     // 波动速度
     float tilt_angle;     // 倾斜角度
     SDL_Color color;      // 颜色
+    SDL_Texture *texture;
 } LotusPad;
 
 // 荷花结构体
@@ -219,7 +220,10 @@ void initialize_cloud();
 void initialize_stars();
 void initialize_mountains();
 void initialize_reeds();
+void generate_lotus_texture(LotusPad *pad);
 void initialize_lotus_pads();
+void render_lotus_texture(LotusPad *pad, int proj_x, float tilt);
+void destroy_lotus_textures();
 void initialize_lotus_flowers();
 void update_stars(Uint32 current_time);
 void update_lotus_pads(Uint32 current_time, float delta_time);
@@ -526,6 +530,7 @@ void close() {
             cloud_textures[i] = NULL;
         }
     }
+    destroy_lotus_textures();
     
     // 销毁渲染器和窗口
     if (renderer != NULL) {
@@ -844,6 +849,79 @@ void initialize_reeds() {
     }
 }
 
+void generate_lotus_texture(LotusPad* pad) {
+    int radius = (int)pad->radius;
+    int tex_size = radius * 2 + 2;
+    
+    // 创建表面
+    SDL_Surface* surface = SDL_CreateRGBSurface(0, tex_size, tex_size, 32, 
+        0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+    SDL_FillRect(surface, NULL, SDL_MapRGBA(surface->format, 0,0,0,0));
+    
+    SDL_LockSurface(surface);
+    
+    int center_x = tex_size/2;
+    int center_y = tex_size/2;
+    
+    // 绘制边缘
+    SDL_Color edge_color = pad->color;
+    edge_color.r = (Uint8)(edge_color.r * 0.7f);
+    edge_color.g = (Uint8)(edge_color.g * 0.7f);
+    edge_color.b = (Uint8)(edge_color.b * 0.7f);
+    
+    for (int angle = 0; angle < 360; angle += 2) {
+        float rad = angle * 3.14f / 180.0f;
+        float x = radius * cosf(rad) * (1.0f - 0.2f * sinf(rad));
+        float y = radius * sinf(rad) * (1.0f + 0.1f * cosf(rad));
+        
+        int px = center_x + (int)x;
+        int py = center_y + (int)y;
+        if (px >= 0 && px < tex_size && py >= 0 && py < tex_size) {
+            ((Uint32*)surface->pixels)[py * surface->pitch/4 + px] = 
+                SDL_MapRGBA(surface->format, edge_color.r, edge_color.g, edge_color.b, 255);
+        }
+    }
+    
+    // 填充内部
+    SDL_Color fill_color = pad->color;
+    for (float r = 0; r < radius * 0.95f; r += 0.5f) {
+        for (int angle = 0; angle < 360; angle += 2) {
+            float rad = angle * 3.14f / 180.0f;
+            float x = r * cosf(rad) * (1.0f - 0.2f * sinf(rad));
+            float y = r * sinf(rad) * (1.0f + 0.1f * cosf(rad));
+            
+            int px = center_x + (int)x;
+            int py = center_y + (int)y;
+            if (px >= 0 && px < tex_size && py >= 0 && py < tex_size) {
+                ((Uint32*)surface->pixels)[py * surface->pitch/4 + px] = 
+                    SDL_MapRGBA(surface->format, fill_color.r, fill_color.g, fill_color.b, 255);
+            }
+        }
+    }
+    
+    // 绘制叶脉
+    SDL_Color vein_color = fill_color;
+    vein_color.r = (Uint8)(vein_color.r * 0.8f);
+    vein_color.g = (Uint8)(vein_color.g * 0.8f);
+    vein_color.b = (Uint8)(vein_color.b * 0.8f);
+    
+    for (int j = 0; j < 8; j++) {
+        float angle = j * 3.14f / 4.0f;
+        for (float r = 0; r < radius * 0.9f; r += 0.5f) {
+            int px = center_x + (int)(r * cosf(angle));
+            int py = center_y + (int)(r * sinf(angle));
+            if (px >= 0 && px < tex_size && py >= 0 && py < tex_size) {
+                ((Uint32*)surface->pixels)[py * surface->pitch/4 + px] = 
+                    SDL_MapRGBA(surface->format, vein_color.r, vein_color.g, vein_color.b, 255);
+            }
+        }
+    }
+    
+    SDL_UnlockSurface(surface);
+    pad->texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+}
+
 void initialize_lotus_pads() {
     for (int i = 0; i < LOTUS_PAD_COUNT; i++) {
         lotus_pads[i].z = 0.3f + ((float)rand() / RAND_MAX) * 0.7f; // 随机深度 (0.3-1.0)
@@ -866,9 +944,39 @@ void initialize_lotus_pads() {
         lotus_pads[i].color.g = 100 + rand() % 50;
         lotus_pads[i].color.b = 30 + rand() % 20;
         lotus_pads[i].color.a = 255;
+
+        generate_lotus_texture(&lotus_pads[i]);
     }
 }
 
+void render_lotus_texture(LotusPad* pad, int proj_x, float tilt) {
+    if (!pad->texture) return;
+    
+    int tex_w, tex_h;
+    SDL_QueryTexture(pad->texture, NULL, NULL, &tex_w, &tex_h);
+    
+    float z_scale = get_z_scale(pad->z);
+    SDL_Rect dest_rect = {
+        proj_x - (int)(tex_w * z_scale / 2),
+        (int)pad->y - (int)(tex_h * z_scale / 2),
+        (int)(tex_w * z_scale),
+        (int)(tex_h * z_scale)
+    };
+    
+    SDL_Point center = {dest_rect.w/2, dest_rect.h/2};
+    SDL_RenderCopyEx(renderer, pad->texture, NULL, &dest_rect, 
+                   tilt * (180.0f / 3.14f), &center, SDL_FLIP_NONE);
+}
+
+void destroy_lotus_textures() {
+    for (int i = 0; i < LOTUS_PAD_COUNT; i++) {
+        if (lotus_pads[i].texture) {
+            SDL_DestroyTexture(lotus_pads[i].texture);
+            lotus_pads[i].texture = NULL;
+        }
+    }
+}
+    
 void initialize_lotus_flowers() {
     for (int i = 0; i < LOTUS_FLOWER_COUNT; i++) {
         lotus_flowers[i].z = 0.4f + ((float)rand() / RAND_MAX) * 0.6f; // 随机深度 (0.4-1.0)
@@ -899,6 +1007,7 @@ SDL_Color get_random_color() {
     SDL_Color color;
     // 生成适合雨滴的柔和颜色
     color.r = 150 + rand() % 105;  // 150-255
+
     color.g = 150 + rand() % 105;  // 150-255
     color.b = 150 + rand() % 105;  // 150-255
     color.a = 150 + rand() % 105;  // 150-255 (半透明)
@@ -1549,69 +1658,7 @@ void render() {
             float h_radius = lotus_pads[i].radius;
             float v_radius = lotus_pads[i].radius * (0.5f - tilt * 0.2f);
             
-            // 绘制荷叶边缘，稍暗
-            SDL_Color edge_color = lotus_pads[i].color;
-            edge_color.r = (Uint8)(edge_color.r * 0.7f);
-            edge_color.g = (Uint8)(edge_color.g * 0.7f);
-            edge_color.b = (Uint8)(edge_color.b * 0.7f);
-            
-            // 考虑闪电照明
-            if (lightning_flash) {
-                edge_color.r = (Uint8)fminf(255, edge_color.r + flash_brightness);
-                edge_color.g = (Uint8)fminf(255, edge_color.g + flash_brightness);
-                edge_color.b = (Uint8)fminf(255, edge_color.b + flash_brightness);
-            }
-            
-            SDL_SetRenderDrawColor(renderer, edge_color.r, edge_color.g, edge_color.b, 255);
-            
-            // 绘制荷叶边缘
-            for (int angle = 0; angle < 360; angle += 2) {
-                float rad = angle * 3.14159f / 180.0f;
-                int x = (int)(proj_x + h_radius * cosf(rad) * (1.0f - 0.2f * sinf(rad + tilt)));
-                int y = (int)(lotus_pads[i].y + v_radius * sinf(rad) * (1.0f + 0.1f * cosf(rad)));
-                
-                if (x >= 0 && x < WINDOW_WIDTH && y >= 0 && y < WINDOW_HEIGHT) {
-                    SDL_RenderDrawPoint(renderer, x, y);
-                }
-            }
-            
-            // 绘制荷叶内部填充
-            SDL_SetRenderDrawColor(renderer, 
-                                  lotus_pads[i].color.r, 
-                                  lotus_pads[i].color.g, 
-                                  lotus_pads[i].color.b, 255);
-            
-            // 简单的椭圆填充
-            for (float r = 0; r < h_radius * 0.95f; r += 0.5f) {
-                for (int angle = 0; angle < 360; angle += 5) {
-                    float rad = angle * 3.14159f / 180.0f;
-                    float r_factor = r / h_radius;
-                    
-                    // 修改椭圆形状，创建不规则的荷叶
-                    float shape_factor = 1.0f - 0.2f * sinf(rad + tilt * 3) * r_factor;
-                    
-                    int x = (int)(proj_x + r * cosf(rad) * shape_factor);
-                    int y = (int)(lotus_pads[i].y + r * v_radius / h_radius * sinf(rad) * (1.0f + 0.1f * cosf(rad)));
-                    
-                    if (x >= 0 && x < WINDOW_WIDTH && y >= 0 && y < WINDOW_HEIGHT) {
-                        SDL_RenderDrawPoint(renderer, x, y);
-                    }
-                }
-            }
-            
-            // 绘制荷叶中心脉络
-            SDL_SetRenderDrawColor(renderer, (Uint8)(lotus_pads[i].color.r * 0.8f), 
-                                  (Uint8)(lotus_pads[i].color.g * 0.8f), 
-                                  (Uint8)(lotus_pads[i].color.b * 0.8f), 255);
-            
-            // 主脉
-            for (int j = 0; j < 8; j++) {
-                float angle = j * 3.14159f / 4.0f;
-                SDL_RenderDrawLine(renderer, 
-                                  proj_x, lotus_pads[i].y,
-                                  (int)(proj_x + h_radius * 0.9f * cosf(angle)),
-                                  (int)(lotus_pads[i].y + v_radius * 0.9f * sinf(angle)));
-            }
+            render_lotus_texture(&lotus_pads[i], proj_x, tilt);
         }
     }
     
