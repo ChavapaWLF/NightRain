@@ -5,6 +5,7 @@
  */
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -162,6 +163,9 @@ typedef struct {
 // 全局变量 global para
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
+Mix_Chunk *splash_sound = NULL;
+Mix_Chunk *lightning_sound = NULL;
+Mix_Music *bgm_music = NULL;
 Raindrop raindrops[MAX_RAINDROPS];
 Ripple ripples[MAX_RIPPLES];
 Splash splashes[MAX_SPLASHES];
@@ -194,8 +198,8 @@ float wind_change_speed = 0.02f;        // 风力变化速度
 WeatherState current_weather = WEATHER_LIGHT_RAIN;   // 当前天气状态
 WeatherState target_weather = WEATHER_LIGHT_RAIN;    // 目标天气状态
 Uint32 last_weather_change_time = 0;    // 上次天气变化时间
-Uint32 weather_duration_min = 10000;    // 天气持续最短时间（毫秒）
-Uint32 weather_duration_max = 30000;    // 天气持续最长时间（毫秒）
+Uint32 weather_duration_min = 50000;    // 天气持续最短时间（毫秒）
+Uint32 weather_duration_max = 100000;    // 天气持续最长时间（毫秒）
 float rain_surface_ratio = 0.3f;        // 直接落在水面的雨点比例
 int weather_intensity = 50;             // 天气剧烈程度 (0-100)
 Uint32 last_thunder_time = 0;           // 上次雷声时间
@@ -307,6 +311,12 @@ int main(int argc, char* args[]) {
     
     // 时间跟踪
     Uint32 last_frame_time = SDL_GetTicks();
+
+    // load bgm
+    if(bgm_music != NULL) {
+        Mix_VolumeMusic(90); // 设置音乐音量（0-128）
+        Mix_PlayMusic(bgm_music, -1); // -1表示循环播放
+    }
     
     // 主循环
     while (!quit) {
@@ -468,7 +478,7 @@ int main(int argc, char* args[]) {
 
 bool initialize() {
     // 初始化SDL
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         printf("SDL无法初始化! SDL错误: %s\n", SDL_GetError());
         return false;
     }
@@ -500,6 +510,29 @@ bool initialize() {
     
     // 设置渲染器混合模式
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // initialize SDL_mixer for audio
+    if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("SDL_mixer初始化失败! 错误: %s\n", Mix_GetError());
+        return false;
+    }
+
+    // load audio
+    bgm_music = Mix_LoadMUS("./audio/bgm.mp3");
+    if(!bgm_music) {
+        printf("无法加载背景音乐! 错误: %s\n", Mix_GetError());
+        // 注意：这里不返回错误，即使音乐加载失败程序仍然可以运行
+    }
+    splash_sound = Mix_LoadWAV("./audio/splash.wav");
+    if(!splash_sound) {
+        printf("无法加载音效! 错误: %s\n", Mix_GetError());
+        return false;
+    }
+    lightning_sound = Mix_LoadWAV("./audio/lightning.wav");
+    if(!splash_sound) {
+        printf("无法加载音效! 错误: %s\n", Mix_GetError());
+        return false;
+    }
     
     // 初始化各种元素数组
     for (int i = 0; i < MAX_RAINDROPS; i++) {
@@ -540,6 +573,21 @@ void close() {
         }
     }
     destroy_lotus_textures();
+
+    /* destroy audio*/
+    if(splash_sound != NULL) {
+        Mix_FreeChunk(splash_sound);
+        splash_sound = NULL;
+    }
+    if(lightning_sound != NULL) {
+        Mix_FreeChunk(lightning_sound);
+        lightning_sound = NULL;
+    }
+    Mix_CloseAudio();
+    if(bgm_music != NULL) {
+        Mix_FreeMusic(bgm_music);
+        bgm_music = NULL;
+    }
     
     // 销毁渲染器和窗口
     if (renderer != NULL) {
@@ -633,6 +681,11 @@ void create_ripple(float x, float y, float z, SDL_Color color) {
             ripples[i].color = color;
             ripples[i].creation_time = SDL_GetTicks();
             ripple_count++;
+
+            // 播放音效
+            if(splash_sound != NULL) {
+                Mix_PlayChannel(-1, splash_sound, 0);
+            }
             return;
         }
     }
@@ -1328,6 +1381,10 @@ void update_lightning(Uint32 current_time) {
             if (lightning_age >= lightnings[i].duration) {
                 lightnings[i].active = false;
                 lightning_count--;
+            }
+            /* play sound */
+            if(lightning_sound != NULL) {
+                Mix_PlayChannel(-1, lightning_sound, 0);
             }
         }
     }
