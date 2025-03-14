@@ -270,17 +270,17 @@ int main(int argc, char* args[]) {
     }
     
     // 显示使用说明
-    printf("\n彩色雨夜荷塘 - 高级3D特效版\n");
-    printf("============ 控制说明 ============\n");
-    printf("1 键: 切换到和风细雨模式\n");
-    printf("2 键: 切换到中雨模式\n");
-    printf("3 键: 切换到暴风骤雨模式\n");
-    printf("4 键: 切换到电闪雷鸣模式\n");
-    printf("上/下方向键: 增加/减少天气强度\n");
-    printf("左/右方向键: 左/右移动视角\n");
-    printf("Home键: 重置视角\n");
-    printf("空格键: 手动触发闪电和雷声\n");
-    printf("ESC键: 退出程序\n");
+    printf("\nRainbow Rain in Nighty Pond\n");
+    printf("============ Control Manual ============\n");
+    printf("1: switch to light rain\n");
+    printf("2: switch to moderate rain\n");
+    printf("3: switch to heavy rain\n");
+    printf("4: switch to thunder storm\n");
+    printf("Up/Down: Inc/Dec weather intensity\n");
+    printf("Left/Right: move camera Left/Right\n");
+    printf("Home: reset camera\n");
+    printf("Space: trigger thunder and lightning\n");
+    printf("ESC: exit\n");
     printf("=================================\n\n");
 
     
@@ -791,15 +791,13 @@ void initialize_cloud() {
                 0.15 * sin(x * 0.07 + layer*3) +
                 0.10 * cos(x * 0.13 + layer*7);
             
-            int cloud_height = (int)(30 + noise * 40);
-            Uint8 alpha = (Uint8)(40 + layer * 15);
+            int cloud_height = (int)(30 + noise * 40 + layer * 10);
+            Uint8 alpha = (Uint8)(100 + layer * 15);
             
-            // 生成垂直渐变
             for (int y = 0; y < cloud_surface->h; y++) {
-                Uint8 pixel_alpha = (Uint8)(alpha * (1.0f - (float)y/cloud_surface->h));
                 if(y < cloud_height) {
                     ((Uint32*)cloud_surface->pixels)[y * cloud_surface->pitch/4 + x] = 
-                        SDL_MapRGBA(cloud_surface->format, 30, 30, 40, pixel_alpha);
+                        SDL_MapRGBA(cloud_surface->format, 80-layer*10, 80-layer*10, 100-layer*10, 255);
                 }
             }
         }
@@ -1484,22 +1482,22 @@ void render() {
         cloud_layers = (int)(cloud_layers * (0.7f + weather_intensity / 100.0f * 0.6f));
         Uint32 current_time = SDL_GetTicks();
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        for (int layer = 0; layer < cloud_layers; layer++) {
+        for (int layer = cloud_layers-1; layer >= 0; layer--) {
             // 计算云层位移（不同层以不同速度移动）
-            cloud_offsets[layer] = (cloud_offsets[layer] + 1 + layer) % (WINDOW_WIDTH*2);
+            cloud_offsets[layer] = (cloud_offsets[layer] + cloud_layers) % (WINDOW_WIDTH*2);
             
             // 设置纹理透明度
-            SDL_SetTextureAlphaMod(cloud_textures[layer], (Uint8)(40 + layer * 15));
+            SDL_SetTextureAlphaMod(cloud_textures[layer], 255);
             
             // 绘制双倍宽度纹理实现无缝滚动
             SDL_Rect src_rect = { cloud_offsets[layer], 0, WINDOW_WIDTH, 200 };
-            SDL_Rect dest_rect = { 0, layer * 20, WINDOW_WIDTH, 200 };
+            SDL_Rect dest_rect = { 0, 0, WINDOW_WIDTH, 200 };
             SDL_RenderCopy(renderer, cloud_textures[layer], &src_rect, &dest_rect);
             
             // 绘制剩余部分实现循环
             if (cloud_offsets[layer] > WINDOW_WIDTH) {
                 SDL_Rect src_remain = { 0, 0, WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
-                SDL_Rect dest_remain = { cloud_offsets[layer] - WINDOW_WIDTH, layer * 20, 
+                SDL_Rect dest_remain = { cloud_offsets[layer] - WINDOW_WIDTH, 0, 
                                         WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
                 SDL_RenderCopy(renderer, cloud_textures[layer], &src_remain, &dest_remain);
             }
@@ -2021,31 +2019,4 @@ void render_weather_info() {
             SDL_RenderFillRect(renderer, &thunder_indicator);
         }
     }
-    
-    // 绘制控制提示
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 200);
-    SDL_Rect help_bg = {WINDOW_WIDTH - 210, 10, 200, 120};
-    SDL_RenderFillRect(renderer, &help_bg);
-    
-    // 绘制控制信息（简化文本渲染）
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    
-    // 由于这只是一个演示，没有使用完整的文本渲染库，所以这里简化处理
-    // 在实际应用中，应该使用SDL_ttf库进行文本渲染
-    // 这里只绘制一些矩形表示文本区域
-    
-    SDL_Rect text_rect1 = {WINDOW_WIDTH - 200, 20, 180, 8};
-    SDL_RenderFillRect(renderer, &text_rect1);
-    
-    SDL_Rect text_rect2 = {WINDOW_WIDTH - 200, 40, 160, 8};
-    SDL_RenderFillRect(renderer, &text_rect2);
-    
-    SDL_Rect text_rect3 = {WINDOW_WIDTH - 200, 60, 140, 8};
-    SDL_RenderFillRect(renderer, &text_rect3);
-    
-    SDL_Rect text_rect4 = {WINDOW_WIDTH - 200, 80, 150, 8};
-    SDL_RenderFillRect(renderer, &text_rect4);
-    
-    SDL_Rect text_rect5 = {WINDOW_WIDTH - 200, 100, 170, 8};
-    SDL_RenderFillRect(renderer, &text_rect5);
 }
