@@ -782,15 +782,13 @@ void initialize_cloud() {
                 0.15 * sin(x * 0.07 + layer*3) +
                 0.10 * cos(x * 0.13 + layer*7);
             
-            int cloud_height = (int)(30 + noise * 40);
-            Uint8 alpha = (Uint8)(40 + layer * 15);
+            int cloud_height = (int)(30 + noise * 40 + layer * 10);
+            Uint8 alpha = (Uint8)(100 + layer * 15);
             
-            // 生成垂直渐变
             for (int y = 0; y < cloud_surface->h; y++) {
-                Uint8 pixel_alpha = (Uint8)(alpha * (1.0f - (float)y/cloud_surface->h));
                 if(y < cloud_height) {
                     ((Uint32*)cloud_surface->pixels)[y * cloud_surface->pitch/4 + x] = 
-                        SDL_MapRGBA(cloud_surface->format, 30, 30, 40, pixel_alpha);
+                        SDL_MapRGBA(cloud_surface->format, 80-layer*10, 80-layer*10, 100-layer*10, 255);
                 }
             }
         }
@@ -1475,22 +1473,22 @@ void render() {
         cloud_layers = (int)(cloud_layers * (0.7f + weather_intensity / 100.0f * 0.6f));
         Uint32 current_time = SDL_GetTicks();
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        for (int layer = 0; layer < cloud_layers; layer++) {
+        for (int layer = cloud_layers-1; layer >= 0; layer--) {
             // 计算云层位移（不同层以不同速度移动）
-            cloud_offsets[layer] = (cloud_offsets[layer] + 1 + layer) % (WINDOW_WIDTH*2);
+            cloud_offsets[layer] = (cloud_offsets[layer] + cloud_layers) % (WINDOW_WIDTH*2);
             
             // 设置纹理透明度
-            SDL_SetTextureAlphaMod(cloud_textures[layer], (Uint8)(40 + layer * 15));
+            SDL_SetTextureAlphaMod(cloud_textures[layer], 255);
             
             // 绘制双倍宽度纹理实现无缝滚动
             SDL_Rect src_rect = { cloud_offsets[layer], 0, WINDOW_WIDTH, 200 };
-            SDL_Rect dest_rect = { 0, layer * 20, WINDOW_WIDTH, 200 };
+            SDL_Rect dest_rect = { 0, 0, WINDOW_WIDTH, 200 };
             SDL_RenderCopy(renderer, cloud_textures[layer], &src_rect, &dest_rect);
             
             // 绘制剩余部分实现循环
             if (cloud_offsets[layer] > WINDOW_WIDTH) {
                 SDL_Rect src_remain = { 0, 0, WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
-                SDL_Rect dest_remain = { cloud_offsets[layer] - WINDOW_WIDTH, layer * 20, 
+                SDL_Rect dest_remain = { cloud_offsets[layer] - WINDOW_WIDTH, 0, 
                                         WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
                 SDL_RenderCopy(renderer, cloud_textures[layer], &src_remain, &dest_remain);
             }
