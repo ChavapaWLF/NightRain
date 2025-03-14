@@ -261,17 +261,17 @@ int main(int argc, char* args[]) {
     }
     
     // 显示使用说明
-    printf("\n彩色雨夜荷塘 - 高级3D特效版\n");
-    printf("============ 控制说明 ============\n");
-    printf("1 键: 切换到和风细雨模式\n");
-    printf("2 键: 切换到中雨模式\n");
-    printf("3 键: 切换到暴风骤雨模式\n");
-    printf("4 键: 切换到电闪雷鸣模式\n");
-    printf("上/下方向键: 增加/减少天气强度\n");
-    printf("左/右方向键: 左/右移动视角\n");
-    printf("Home键: 重置视角\n");
-    printf("空格键: 手动触发闪电和雷声\n");
-    printf("ESC键: 退出程序\n");
+    printf("\nRainbow Rain in Nighty Pond\n");
+    printf("============ Control Manual ============\n");
+    printf("1: switch to light rain\n");
+    printf("2: switch to moderate rain\n");
+    printf("3: switch to heavy rain\n");
+    printf("4: switch to thunder storm\n");
+    printf("Up/Down: Inc/Dec weather intensity\n");
+    printf("Left/Right: move camera Left/Right\n");
+    printf("Home: reset camera\n");
+    printf("Space: trigger thunder and lightning\n");
+    printf("ESC: exit\n");
     printf("=================================\n\n");
 
     
@@ -2010,31 +2010,4 @@ void render_weather_info() {
             SDL_RenderFillRect(renderer, &thunder_indicator);
         }
     }
-    
-    // 绘制控制提示
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 200);
-    SDL_Rect help_bg = {WINDOW_WIDTH - 210, 10, 200, 120};
-    SDL_RenderFillRect(renderer, &help_bg);
-    
-    // 绘制控制信息（简化文本渲染）
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    
-    // 由于这只是一个演示，没有使用完整的文本渲染库，所以这里简化处理
-    // 在实际应用中，应该使用SDL_ttf库进行文本渲染
-    // 这里只绘制一些矩形表示文本区域
-    
-    SDL_Rect text_rect1 = {WINDOW_WIDTH - 200, 20, 180, 8};
-    SDL_RenderFillRect(renderer, &text_rect1);
-    
-    SDL_Rect text_rect2 = {WINDOW_WIDTH - 200, 40, 160, 8};
-    SDL_RenderFillRect(renderer, &text_rect2);
-    
-    SDL_Rect text_rect3 = {WINDOW_WIDTH - 200, 60, 140, 8};
-    SDL_RenderFillRect(renderer, &text_rect3);
-    
-    SDL_Rect text_rect4 = {WINDOW_WIDTH - 200, 80, 150, 8};
-    SDL_RenderFillRect(renderer, &text_rect4);
-    
-    SDL_Rect text_rect5 = {WINDOW_WIDTH - 200, 100, 170, 8};
-    SDL_RenderFillRect(renderer, &text_rect5);
 }
