@@ -240,9 +240,18 @@ float project_x(float x, float z); // 根据z坐标投影x坐标
 SDL_Color adjust_color_by_depth(SDL_Color color, float z); // 根据深度调整颜色
 float get_rain_interval(WeatherState weather, int intensity); // 根据天气和强度获取雨滴间隔
 
+// Set console code page to UTF-8 or GBK
+void setConsoleCodePage() {
+    // Use UTF-8 code page (65001)
+    SetConsoleOutputCP(65001);
+    // Or use Simplified Chinese GBK code page (936)
+    // SetConsoleOutputCP(936);
+}
+
 int main(int argc, char* args[]) {
     /* allocate a terminal for this GUI program */
-    AllocConsole();
+    AllocConsole();    
+    setConsoleCodePage();
     freopen("CONIN$", "r", stdin);
     freopen("CONOUT$", "w", stdout);
     freopen("CONOUT$", "w", stderr);
