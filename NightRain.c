@@ -31,6 +31,7 @@
 #define REED_COUNT 20                   // 芦苇数量
 #define LOTUS_PAD_COUNT 25              // 荷叶数量
 #define LOTUS_FLOWER_COUNT 8            // 荷花数量
+#define MAX_CLOUD_LAYERS 7              // cloud layer number
 
 // 天气状态枚举
 typedef enum {
@@ -167,6 +168,8 @@ Lightning lightnings[MAX_LIGHTNING];
 SDL_Texture *moon_texture = NULL; //use texture to improve performance
 Star stars[STARS_COUNT];
 Mountain mountains[MOUNTAIN_COUNT];
+SDL_Texture *cloud_textures[MAX_CLOUD_LAYERS];  // use texture to improve performance
+int cloud_offsets[MAX_CLOUD_LAYERS];    
 Reed reeds[REED_COUNT];
 LotusPad lotus_pads[LOTUS_PAD_COUNT];
 LotusFlower lotus_flowers[LOTUS_FLOWER_COUNT];
@@ -212,6 +215,7 @@ void update_splashes(Uint32 current_time, float delta_time);
 void create_lightning(int x, int y, int length, int width, int type);
 void update_lightning(Uint32 current_time);
 void initialize_moon();
+void initialize_cloud();
 void initialize_stars();
 void initialize_mountains();
 void initialize_reeds();
@@ -281,6 +285,7 @@ int main(int argc, char* args[]) {
     
     // 初始化各种元素
     initialize_moon();
+    initialize_cloud();
     initialize_stars();
     initialize_mountains();
     initialize_reeds();
@@ -515,6 +520,12 @@ void close() {
         SDL_DestroyTexture(moon_texture);
         moon_texture = NULL;
     }
+    for (int i = 0; i < MAX_CLOUD_LAYERS; i++) {
+        if (cloud_textures[i]) {
+            SDL_DestroyTexture(cloud_textures[i]);
+            cloud_textures[i] = NULL;
+        }
+    }
     
     // 销毁渲染器和窗口
     if (renderer != NULL) {
@@ -747,6 +758,44 @@ void initialize_moon() {
         printf("无法创建月亮纹理! SDL错误: %s\n", SDL_GetError());
         return;
     }
+}
+
+void initialize_cloud() {
+    for (int layer = 0; layer < MAX_CLOUD_LAYERS; layer++) {
+        // 创建表面用于生成云纹理
+        SDL_Surface* cloud_surface = SDL_CreateRGBSurface(0, WINDOW_WIDTH*2, 200, 32, 
+            0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+        SDL_FillRect(cloud_surface, NULL, SDL_MapRGBA(cloud_surface->format, 0,0,0,0));
+        
+        // 预生成云层数据（使用改进的噪声算法）
+        SDL_LockSurface(cloud_surface);
+        for (int x = 0; x < cloud_surface->w; x++) {
+            // 使用分形噪声生成更自然的云图案
+            float noise = 
+                0.50 * sin(x * 0.01 + layer*2) +
+                0.25 * cos(x * 0.03 + layer*5) +
+                0.15 * sin(x * 0.07 + layer*3) +
+                0.10 * cos(x * 0.13 + layer*7);
+            
+            int cloud_height = (int)(30 + noise * 40);
+            Uint8 alpha = (Uint8)(40 + layer * 15);
+            
+            // 生成垂直渐变
+            for (int y = 0; y < cloud_surface->h; y++) {
+                Uint8 pixel_alpha = (Uint8)(alpha * (1.0f - (float)y/cloud_surface->h));
+                if(y < cloud_height) {
+                    ((Uint32*)cloud_surface->pixels)[y * cloud_surface->pitch/4 + x] = 
+                        SDL_MapRGBA(cloud_surface->format, 30, 30, 40, pixel_alpha);
+                }
+            }
+        }
+        SDL_UnlockSurface(cloud_surface);
+        
+        // 转换为纹理并保存
+        cloud_textures[layer] = SDL_CreateTextureFromSurface(renderer, cloud_surface);
+        SDL_FreeSurface(cloud_surface);
+        cloud_offsets[layer] = 0;
+    }    
 }
 
 void initialize_stars() {
@@ -1311,36 +1360,35 @@ void render() {
     
     // 在暴风雨或中雨时绘制云层
     if (current_weather >= WEATHER_MEDIUM_RAIN) {
-        // 多层云彩效果
         int cloud_layers = 3;
         if (current_weather == WEATHER_HEAVY_RAIN) cloud_layers = 5;
         if (current_weather == WEATHER_THUNDERSTORM) cloud_layers = 7;
-        
-        // 根据天气强度调整云层
         cloud_layers = (int)(cloud_layers * (0.7f + weather_intensity / 100.0f * 0.6f));
-        
+        Uint32 current_time = SDL_GetTicks();
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         for (int layer = 0; layer < cloud_layers; layer++) {
-            Uint8 cloud_alpha = (Uint8)(40 + layer * 15); // 层数越高越不透明
-            SDL_SetRenderDrawColor(renderer, 30, 30, 40, cloud_alpha);
+            // 计算云层位移（不同层以不同速度移动）
+            cloud_offsets[layer] = (cloud_offsets[layer] + 1 + layer) % (WINDOW_WIDTH*2);
             
-            // 使用噪声效果创建不规则云层
-            float layer_y_base = layer * 20.0f;
-            for (int x = 0; x < WINDOW_WIDTH; x += 2) {
-                // 使用柏林噪声的近似模拟
-                float noise_y = sinf(x * 0.01f + layer) * 10 + 
-                                cosf(x * 0.02f + layer * 2) * 5 +
-                                sinf(x * 0.03f + layer * 3) * 2.5f;
-                
-                int cloud_height = (int)(20 + noise_y + layer_y_base);
-                
-                for (int y = 0; y < cloud_height; y++) {
-                    SDL_RenderDrawPoint(renderer, x, y);
-                    SDL_RenderDrawPoint(renderer, x+1, y);
-                }
+            // 设置纹理透明度
+            SDL_SetTextureAlphaMod(cloud_textures[layer], (Uint8)(40 + layer * 15));
+            
+            // 绘制双倍宽度纹理实现无缝滚动
+            SDL_Rect src_rect = { cloud_offsets[layer], 0, WINDOW_WIDTH, 200 };
+            SDL_Rect dest_rect = { 0, layer * 20, WINDOW_WIDTH, 200 };
+            SDL_RenderCopy(renderer, cloud_textures[layer], &src_rect, &dest_rect);
+            
+            // 绘制剩余部分实现循环
+            if (cloud_offsets[layer] > WINDOW_WIDTH) {
+                SDL_Rect src_remain = { 0, 0, WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
+                SDL_Rect dest_remain = { cloud_offsets[layer] - WINDOW_WIDTH, layer * 20, 
+                                        WINDOW_WIDTH*2 - cloud_offsets[layer], 200 };
+                SDL_RenderCopy(renderer, cloud_textures[layer], &src_remain, &dest_remain);
             }
         }
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     }
-    
+     
     // 绘制闪电
     for (int i = 0; i < MAX_LIGHTNING; i++) {
         if (lightnings[i].active) {
