@@ -1479,12 +1479,11 @@ void render() {
         int cloud_layers = 3;
         if (current_weather == WEATHER_HEAVY_RAIN) cloud_layers = 5;
         if (current_weather == WEATHER_THUNDERSTORM) cloud_layers = 7;
-        cloud_layers = (int)(cloud_layers * (0.7f + weather_intensity / 100.0f * 0.6f));
         Uint32 current_time = SDL_GetTicks();
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         for (int layer = cloud_layers-1; layer >= 0; layer--) {
             // 计算云层位移（不同层以不同速度移动）
-            cloud_offsets[layer] = (cloud_offsets[layer] + cloud_layers) % (WINDOW_WIDTH*2);
+            cloud_offsets[layer] = (cloud_offsets[layer] + cloud_layers + (int)(weather_intensity / 20.0f)) % (WINDOW_WIDTH*2);
             
             // 设置纹理透明度
             SDL_SetTextureAlphaMod(cloud_textures[layer], 255);
