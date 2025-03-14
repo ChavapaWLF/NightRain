@@ -200,6 +200,7 @@ WeatherState target_weather = WEATHER_LIGHT_RAIN;    // 目标天气状态
 Uint32 last_weather_change_time = 0;    // 上次天气变化时间
 Uint32 weather_duration_min = 50000;    // 天气持续最短时间（毫秒）
 Uint32 weather_duration_max = 100000;    // 天气持续最长时间（毫秒）
+float cloud_speed = 1.0f;
 float rain_surface_ratio = 0.3f;        // 直接落在水面的雨点比例
 int weather_intensity = 50;             // 天气剧烈程度 (0-100)
 Uint32 last_thunder_time = 0;           // 上次雷声时间
@@ -1540,7 +1541,7 @@ void render() {
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         for (int layer = cloud_layers-1; layer >= 0; layer--) {
             // 计算云层位移（不同层以不同速度移动）
-            cloud_offsets[layer] = (cloud_offsets[layer] + cloud_layers + (int)(weather_intensity / 20.0f)) % (WINDOW_WIDTH*2);
+            cloud_offsets[layer] = (int)((cloud_offsets[layer] + cloud_layers) * cloud_speed) % (WINDOW_WIDTH*2);
             
             // 设置纹理透明度
             SDL_SetTextureAlphaMod(cloud_textures[layer], 255);
