@@ -872,7 +872,7 @@ void generate_lotus_texture(LotusPad* pad) {
     for (int angle = 0; angle < 360; angle += 2) {
         float rad = angle * 3.14f / 180.0f;
         float x = radius * cosf(rad) * (1.0f - 0.2f * sinf(rad));
-        float y = radius * sinf(rad) * (1.0f + 0.1f * cosf(rad));
+        float y = radius * sinf(rad) * (1.0f + 0.1f * cosf(rad)) * 0.7;
         
         int px = center_x + (int)x;
         int py = center_y + (int)y;
@@ -888,7 +888,7 @@ void generate_lotus_texture(LotusPad* pad) {
         for (int angle = 0; angle < 360; angle += 2) {
             float rad = angle * 3.14f / 180.0f;
             float x = r * cosf(rad) * (1.0f - 0.2f * sinf(rad));
-            float y = r * sinf(rad) * (1.0f + 0.1f * cosf(rad));
+            float y = r * sinf(rad) * (1.0f + 0.1f * cosf(rad)) * 0.7;
             
             int px = center_x + (int)x;
             int py = center_y + (int)y;
@@ -909,7 +909,7 @@ void generate_lotus_texture(LotusPad* pad) {
         float angle = j * 3.14f / 4.0f;
         for (float r = 0; r < radius * 0.9f; r += 0.5f) {
             int px = center_x + (int)(r * cosf(angle));
-            int py = center_y + (int)(r * sinf(angle));
+            int py = center_y + (int)(r * sinf(angle)) * 0.7;
             if (px >= 0 && px < tex_size && py >= 0 && py < tex_size) {
                 ((Uint32*)surface->pixels)[py * surface->pitch/4 + px] = 
                     SDL_MapRGBA(surface->format, vein_color.r, vein_color.g, vein_color.b, 255);
