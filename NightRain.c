@@ -1,7 +1,10 @@
 /*
- * 彩色雨夜荷塘 - 高级3D特效版
+ * 池塘夜降彩色雨（NightRain）C语言版
  * 一个美丽的夜雨荷塘景色模拟程序
  * 包含电闪雷鸣、动态天气和荷叶水珠效果
+ * 本项目诞生于2025春季UCAS数据结构课程大作业
+ * 作者：ChavapaWLF && zjw6673
+ * github: https://github.com/ChavapaWLF/NightRain
  */
 
 #include <SDL2/SDL.h>
@@ -485,7 +488,7 @@ bool initialize() {
     }
     
     // 创建窗口
-    window = SDL_CreateWindow("彩色雨夜荷塘 (高级3D特效版)", 
+    window = SDL_CreateWindow("池塘夜降彩色雨", 
                              SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
                              WINDOW_WIDTH, WINDOW_HEIGHT, 
                              SDL_WINDOW_SHOWN);
